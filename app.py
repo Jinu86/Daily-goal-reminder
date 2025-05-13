@@ -2,14 +2,12 @@
 
 import streamlit as st
 import datetime
-import os
+import json
 from google.generativeai import GenerativeModel, configure
 
-# --- Gemini API 키 설정 ---
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or "YOUR_API_KEY_HERE"
-configure(api_key=GOOGLE_API_KEY)
-
-model = GenerativeModel("gemini-pro")
+# --- Gemini API 키 설정 (Streamlit Secrets 사용) ---
+configure(api_key=st.secrets["GEMINI_API_KEY"])
+model = GenerativeModel(model_name="gemini-pro")
 
 # --- 목표 목록 초기화 ---
 if "goals" not in st.session_state:
@@ -30,10 +28,12 @@ def parse_goal_with_gemini(user_input):
     try:
         response = model.generate_content(prompt)
         text = response.text.strip()
+
+        # JSON 파싱
         json_start = text.find("{")
         json_end = text.rfind("}") + 1
         json_str = text[json_start:json_end]
-        return eval(json_str)  # 안전하게 사용하려면 json.loads 사용
+        return json.loads(json_str)
     except Exception as e:
         st.error("목표 분석 중 오류 발생: " + str(e))
         return None
@@ -46,14 +46,17 @@ if st.button("✅ 목표 등록"):
     if user_input:
         result = parse_goal_with_gemini(user_input)
         if result:
-            deadline_dt = datetime.datetime.fromisoformat(result["deadline"])
-            st.session_state.goals.append({
-                "goal": result["goal"],
-                "deadline": deadline_dt,
-                "created": datetime.datetime.now(),
-                "done": False
-            })
-            st.success(f"목표 등록: {result['goal']} (마감: {deadline_dt.strftime('%H:%M')})")
+            try:
+                deadline_dt = datetime.datetime.fromisoformat(result["deadline"])
+                st.session_state.goals.append({
+                    "goal": result["goal"],
+                    "deadline": deadline_dt,
+                    "created": datetime.datetime.now(),
+                    "done": False
+                })
+                st.success(f"목표 등록: {result['goal']} (마감: {deadline_dt.strftime('%H:%M')})")
+            except Exception as e:
+                st.error("마감 시간 형식이 잘못됐어요: " + str(e))
 
 # --- 목표 목록 표시 ---
 st.subheader("📋 오늘의 목표 목록")
@@ -72,7 +75,6 @@ if st.session_state.goals:
         with col3:
             if st.button("✔️", key=f"done_{i}"):
                 st.session_state.goals[i]["done"] = True
-
 else:
     st.info("오늘의 목표를 입력해주세요!")
 
