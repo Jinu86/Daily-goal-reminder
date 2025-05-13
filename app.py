@@ -3,11 +3,28 @@
 import streamlit as st
 import datetime
 import json
-from google.generativeai import GenerativeModel, configure
+import os
+from dotenv import load_dotenv
+import google.generativeai as genai
 
-# --- Gemini API 키 설정 (Streamlit Secrets 사용) ---
-configure(api_key=st.secrets["GEMINI_API_KEY"])
-model = GenerativeModel(model_name="gemini-pro")
+# --- 환경 변수 불러오기 (로컬과 Streamlit Cloud 모두 지원) ---
+load_dotenv()
+API_KEY = os.getenv("GOOGLE_API_KEY")
+
+# Streamlit Secrets에서도 API 키 확인 (Streamlit Cloud 배포용)
+if not API_KEY and 'GOOGLE_API_KEY' in st.secrets:
+    API_KEY = st.secrets['GOOGLE_API_KEY']
+
+# API 키 확인
+if not API_KEY:
+    st.error("❌ API 키가 설정되지 않았습니다. .env 파일이나 Streamlit Secrets를 확인하세요.")
+    st.stop()
+
+# Google Gemini API 설정
+genai.configure(api_key=API_KEY)
+
+# 모델 초기화
+model = genai.GenerativeModel("models/gemini-1.5-flash")  # 모델명 업데이트됨
 
 # --- 목표 목록 초기화 ---
 if "goals" not in st.session_state:
