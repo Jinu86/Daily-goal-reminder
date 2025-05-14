@@ -68,37 +68,32 @@ if st.button("✅ 목표 등록"):
     if user_input:
         result = parse_goal_with_gemini(user_input)
         if result:
-            # 자연어 시간을 명시적으로 한국어로 처리하도록 설정
+            # 자연어 시간을 간단한 설정으로 파싱
             parsed_time = dateparser.parse(
                 result["deadline"], 
                 settings={
                     "PREFER_DATES_FROM": "future",
                     "TIMEZONE": "Asia/Seoul",
-                    "RELATIVE_BASE": datetime.datetime.now(KST),
                     "RETURN_AS_TIMEZONE_AWARE": True,
                     "PREFER_DAY_OF_MONTH": "first",
-                    "DATE_ORDER": "YMD",
-                    "LANGUAGE": "ko"
+                    "LANGUAGES": ["ko"]
                 }
             )
             
             if parsed_time:
-                # 오늘 날짜에 시간이 00:00으로 파싱된 경우 현재 시간 + 1시간으로 설정
+                # 현재 시간 설정
                 now = datetime.datetime.now(KST)
-                if parsed_time.hour == 0 and parsed_time.minute < 10 and parsed_time.date() == now.date():
-                    st.warning("시간이 정확히 인식되지 않아 현재 시간 기준 1시간 후로 설정합니다.")
-                    parsed_time = now + datetime.timedelta(hours=1)
                 
                 # 세션 상태에 저장
                 st.session_state.goals.append({
                     "goal": result["goal"],
                     "deadline": parsed_time,
-                    "created": datetime.datetime.now(KST),
+                    "created": now,
                     "done": False
                 })
                 
                 # 날짜가 오늘이면 시간만, 아니면 날짜와 시간 표시
-                today = datetime.datetime.now(KST).date()
+                today = now.date()
                 if parsed_time.date() == today:
                     time_str = parsed_time.strftime('%H:%M')
                 else:
@@ -106,8 +101,22 @@ if st.button("✅ 목표 등록"):
                 
                 st.success(f"목표 등록: {result['goal']} (마감: {time_str})")
             else:
-                st.error(f"시간 형식을 이해하지 못했어요: {result['deadline']}")
-                st.info("예: '오늘 오후 10시', '내일 오전 9시', '오늘 저녁 7시'")
+                # dateparser로 파싱 실패 시 수동으로 시간 추정
+                st.warning("시간 형식을 자동으로 인식하지 못했습니다. 현재 시간에서 1시간 후로 설정합니다.")
+                
+                # 현재 시간 + 1시간으로 설정
+                default_time = datetime.datetime.now(KST) + datetime.timedelta(hours=1)
+                
+                # 세션 상태에 저장
+                st.session_state.goals.append({
+                    "goal": result["goal"],
+                    "deadline": default_time,
+                    "created": datetime.datetime.now(KST),
+                    "done": False
+                })
+                
+                st.success(f"목표 등록: {result['goal']} (마감: {default_time.strftime('%H:%M')})")
+                st.info("다음에는 '오늘 오후 3시', '내일 아침 9시'와 같이 시간을 명확히 입력해주세요.")
 
 # --- 목표 목록 표시 ---
 st.subheader("📋 오늘의 목표 목록")
