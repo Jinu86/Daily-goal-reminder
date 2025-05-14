@@ -4,7 +4,6 @@ import streamlit as st
 import datetime
 import json
 import os
-import dateparser
 import pytz
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -60,6 +59,56 @@ def parse_goal_with_gemini(user_input):
 # 한국 시간대 설정
 KST = pytz.timezone('Asia/Seoul')
 
+# 자연어를 시간으로 변환하는 함수 (dateparser 대신 직접 구현)
+def parse_korean_time(time_str):
+    now = datetime.datetime.now(KST)
+    today = now.date()
+    tomorrow = today + datetime.timedelta(days=1)
+    
+    hour = 0
+    is_pm = False
+    target_date = today  # 기본값은 오늘
+    
+    # 날짜 처리
+    if "내일" in time_str:
+        target_date = tomorrow
+    
+    # 시간대 처리
+    if "오전" in time_str or "아침" in time_str:
+        is_pm = False
+    elif "오후" in time_str or "저녁" in time_str or "밤" in time_str:
+        is_pm = True
+    
+    # 시간 추출
+    import re
+    hour_match = re.search(r'(\d+)시', time_str)
+    if hour_match:
+        hour = int(hour_match.group(1))
+        if is_pm and hour < 12:
+            hour += 12
+    else:
+        # 시간을 명시적으로 찾지 못한 경우 기본값 설정
+        if "아침" in time_str:
+            hour = 9  # 아침은 9시로 가정
+        elif "저녁" in time_str:
+            hour = 19  # 저녁은 7시로 가정
+        elif "밤" in time_str:
+            hour = 22  # 밤은 10시로 가정
+        else:
+            # 현재 시간 + 1시간으로 설정
+            return now + datetime.timedelta(hours=1)
+    
+    # 최종 시간 생성
+    result_time = datetime.datetime.combine(
+        target_date, 
+        datetime.time(hour=hour, minute=0)
+    )
+    
+    # timezone 정보 추가
+    result_time = KST.localize(result_time)
+    
+    return result_time
+
 # --- 사용자 입력 ---
 st.title("🧠 하루 목표 리마인더")
 user_input = st.text_input("오늘의 목표를 입력하세요 (예: 오후 6시까지 보고서 작성)")
@@ -68,55 +117,28 @@ if st.button("✅ 목표 등록"):
     if user_input:
         result = parse_goal_with_gemini(user_input)
         if result:
-            # 자연어 시간을 간단한 설정으로 파싱
-            parsed_time = dateparser.parse(
-                result["deadline"], 
-                settings={
-                    "PREFER_DATES_FROM": "future",
-                    "TIMEZONE": "Asia/Seoul",
-                    "RETURN_AS_TIMEZONE_AWARE": True,
-                    "PREFER_DAY_OF_MONTH": "first",
-                    "LANGUAGES": ["ko"]
-                }
-            )
+            # 커스텀 함수로 시간 파싱
+            parsed_time = parse_korean_time(result["deadline"])
             
-            if parsed_time:
-                # 현재 시간 설정
-                now = datetime.datetime.now(KST)
-                
-                # 세션 상태에 저장
-                st.session_state.goals.append({
-                    "goal": result["goal"],
-                    "deadline": parsed_time,
-                    "created": now,
-                    "done": False
-                })
-                
-                # 날짜가 오늘이면 시간만, 아니면 날짜와 시간 표시
-                today = now.date()
-                if parsed_time.date() == today:
-                    time_str = parsed_time.strftime('%H:%M')
-                else:
-                    time_str = parsed_time.strftime('%Y-%m-%d %H:%M')
-                
-                st.success(f"목표 등록: {result['goal']} (마감: {time_str})")
+            # 현재 시간 설정
+            now = datetime.datetime.now(KST)
+            
+            # 세션 상태에 저장
+            st.session_state.goals.append({
+                "goal": result["goal"],
+                "deadline": parsed_time,
+                "created": now,
+                "done": False
+            })
+            
+            # 날짜가 오늘이면 시간만, 아니면 날짜와 시간 표시
+            today = now.date()
+            if parsed_time.date() == today:
+                time_str = parsed_time.strftime('%H:%M')
             else:
-                # dateparser로 파싱 실패 시 수동으로 시간 추정
-                st.warning("시간 형식을 자동으로 인식하지 못했습니다. 현재 시간에서 1시간 후로 설정합니다.")
-                
-                # 현재 시간 + 1시간으로 설정
-                default_time = datetime.datetime.now(KST) + datetime.timedelta(hours=1)
-                
-                # 세션 상태에 저장
-                st.session_state.goals.append({
-                    "goal": result["goal"],
-                    "deadline": default_time,
-                    "created": datetime.datetime.now(KST),
-                    "done": False
-                })
-                
-                st.success(f"목표 등록: {result['goal']} (마감: {default_time.strftime('%H:%M')})")
-                st.info("다음에는 '오늘 오후 3시', '내일 아침 9시'와 같이 시간을 명확히 입력해주세요.")
+                time_str = parsed_time.strftime('%Y-%m-%d %H:%M')
+            
+            st.success(f"목표 등록: {result['goal']} (마감: {time_str})")
 
 # --- 목표 목록 표시 ---
 st.subheader("📋 오늘의 목표 목록")
