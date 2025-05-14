@@ -5,6 +5,7 @@ import datetime
 import json
 import os
 import dateparser
+import pytz
 from dotenv import load_dotenv
 import google.generativeai as genai
 
@@ -56,6 +57,9 @@ def parse_goal_with_gemini(user_input):
         st.error("목표 분석 중 오류 발생: " + str(e))
         return None
 
+# 한국 시간대 설정
+KST = pytz.timezone('Asia/Seoul')
+
 # --- 사용자 입력 ---
 st.title("🧠 하루 목표 리마인더")
 user_input = st.text_input("오늘의 목표를 입력하세요 (예: 오후 6시까지 보고서 작성)")
@@ -64,22 +68,50 @@ if st.button("✅ 목표 등록"):
     if user_input:
         result = parse_goal_with_gemini(user_input)
         if result:
-            # 자연어 시간을 datetime으로 변환
-            parsed_time = dateparser.parse(result["deadline"], settings={"PREFER_DATES_FROM": "future"})
+            # 자연어 시간을 명시적으로 한국어로 처리하도록 설정
+            parsed_time = dateparser.parse(
+                result["deadline"], 
+                settings={
+                    "PREFER_DATES_FROM": "future",
+                    "TIMEZONE": "Asia/Seoul",
+                    "RELATIVE_BASE": datetime.datetime.now(KST),
+                    "RETURN_AS_TIMEZONE_AWARE": True,
+                    "PREFER_DAY_OF_MONTH": "first",
+                    "DATE_ORDER": "YMD",
+                    "LANGUAGE": "ko"
+                }
+            )
+            
             if parsed_time:
+                # 오늘 날짜에 시간이 00:00으로 파싱된 경우 현재 시간 + 1시간으로 설정
+                now = datetime.datetime.now(KST)
+                if parsed_time.hour == 0 and parsed_time.minute < 10 and parsed_time.date() == now.date():
+                    st.warning("시간이 정확히 인식되지 않아 현재 시간 기준 1시간 후로 설정합니다.")
+                    parsed_time = now + datetime.timedelta(hours=1)
+                
+                # 세션 상태에 저장
                 st.session_state.goals.append({
                     "goal": result["goal"],
                     "deadline": parsed_time,
-                    "created": datetime.datetime.now(),
+                    "created": datetime.datetime.now(KST),
                     "done": False
                 })
-                st.success(f"목표 등록: {result['goal']} (마감: {parsed_time.strftime('%H:%M')})")
+                
+                # 날짜가 오늘이면 시간만, 아니면 날짜와 시간 표시
+                today = datetime.datetime.now(KST).date()
+                if parsed_time.date() == today:
+                    time_str = parsed_time.strftime('%H:%M')
+                else:
+                    time_str = parsed_time.strftime('%Y-%m-%d %H:%M')
+                
+                st.success(f"목표 등록: {result['goal']} (마감: {time_str})")
             else:
-                st.error("시간 형식을 이해하지 못했어요: " + result["deadline"])
+                st.error(f"시간 형식을 이해하지 못했어요: {result['deadline']}")
+                st.info("예: '오늘 오후 10시', '내일 오전 9시', '오늘 저녁 7시'")
 
 # --- 목표 목록 표시 ---
 st.subheader("📋 오늘의 목표 목록")
-now = datetime.datetime.now()
+now = datetime.datetime.now(KST)
 
 if st.session_state.goals:
     sorted_goals = sorted(st.session_state.goals, key=lambda x: x["deadline"])
@@ -87,7 +119,19 @@ if st.session_state.goals:
         col1, col2, col3 = st.columns([4, 2, 1])
         with col1:
             status = "✅ 완료" if goal["done"] else "🕒 진행 중"
-            st.write(f"**{goal['goal']}** ({goal['deadline'].strftime('%H:%M')}) - {status}")
+            
+            # 날짜가 오늘이면 시간만, 아니면 날짜와 시간 표시
+            deadline = goal["deadline"]
+            if isinstance(deadline, datetime.datetime):
+                today = now.date()
+                if deadline.date() == today:
+                    time_str = deadline.strftime('%H:%M')
+                else:
+                    time_str = deadline.strftime('%m월 %d일 %H:%M')
+            else:
+                time_str = str(deadline)
+                
+            st.write(f"**{goal['goal']}** ({time_str}) - {status}")
         with col2:
             if not goal["done"] and now >= goal["deadline"]:
                 st.warning("⏰ 마감 시간이 지났어요!")
