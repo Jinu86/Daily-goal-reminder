@@ -4,6 +4,7 @@ import streamlit as st
 import datetime
 import json
 import os
+import dateparser
 from dotenv import load_dotenv
 import google.generativeai as genai
 
@@ -34,10 +35,10 @@ if "goals" not in st.session_state:
 def parse_goal_with_gemini(user_input):
     prompt = f"""
 다음 문장에서 '목표'와 '마감시간'을 추출해서 JSON으로 반환해줘.
-예시 형식:
+형식은 다음과 같아야 해:
 {{
-  "goal": "블로그 글 작성",
-  "deadline": "2025-05-13T19:00:00"
+  "goal": "목표 내용",
+  "deadline": "자연어 시간 표현" (예: "오늘 오후 9시", "내일 오전 10시")
 }}
 
 입력: {user_input}
@@ -63,17 +64,18 @@ if st.button("✅ 목표 등록"):
     if user_input:
         result = parse_goal_with_gemini(user_input)
         if result:
-            try:
-                deadline_dt = datetime.datetime.fromisoformat(result["deadline"])
+            # 자연어 시간을 datetime으로 변환
+            parsed_time = dateparser.parse(result["deadline"], settings={"PREFER_DATES_FROM": "future"})
+            if parsed_time:
                 st.session_state.goals.append({
                     "goal": result["goal"],
-                    "deadline": deadline_dt,
+                    "deadline": parsed_time,
                     "created": datetime.datetime.now(),
                     "done": False
                 })
-                st.success(f"목표 등록: {result['goal']} (마감: {deadline_dt.strftime('%H:%M')})")
-            except Exception as e:
-                st.error("마감 시간 형식이 잘못됐어요: " + str(e))
+                st.success(f"목표 등록: {result['goal']} (마감: {parsed_time.strftime('%H:%M')})")
+            else:
+                st.error("시간 형식을 이해하지 못했어요: " + result["deadline"])
 
 # --- 목표 목록 표시 ---
 st.subheader("📋 오늘의 목표 목록")
